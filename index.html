@@ -4,7 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta name="referrer" content="no-referrer">
+<!-- Bukan no-referrer.
+     Kebijakan ubin OpenStreetMap mewajibkan halaman web mengirim Referer yang
+     sah, dan secara tegas memblokir lalu lintas yang membuang Referer. Tapi
+     alamat halaman ini memuat token pantau di belakang "?t=", dan token itu
+     tidak boleh ikut terkirim ke server siapa pun.
+
+     strict-origin-when-cross-origin menyelesaikan keduanya: ke server ubin
+     yang terkirim hanya "https://<situs>/" — cukup untuk mengenali aplikasi
+     ini, tanpa jalur maupun tokennya. -->
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Pantau perjalanan · RideMate</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -29,6 +38,10 @@
   .pesan h1 { font-size: 20px; margin-bottom: 10px; }
   .pesan p { color: #D9CFBD; line-height: 1.55; font-size: 14px; }
   .sembunyi { display: none; }
+  #kabarPeta {
+    margin: 0; padding: 8px 16px; font-size: 12px;
+    color: #D9CFBD; background: #0E2E2B;
+  }
   /* Spanduk darurat. Merah penuh di atas segalanya, dan tidak bisa
      ditutup: tanda bahaya yang bisa disingkirkan akan tersingkir
      tanpa dibaca. */
@@ -49,6 +62,7 @@
       <p class="tujuan" id="tujuan"></p>
     </header>
     <div id="peta"></div>
+    <p id="kabarPeta" class="sembunyi">Latar peta sedang tidak tersedia. Titik posisinya tetap diperbarui.</p>
     <footer>
       <p class="kabar" id="kabar"></p>
       <div class="baris">
@@ -165,10 +179,23 @@ async function muat() {
   if (!peta) {
     peta = L.map("peta", { zoomControl: true, attributionControl: true })
             .setView([d.lat, d.lon], 15);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    const ubin = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
+      referrerPolicy: "strict-origin-when-cross-origin",
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(peta);
+
+    // Kalau server ubin menolak, yang muncul tanpa penanganan ini adalah
+    // dinding gambar "Access blocked" berulang-ulang — menutupi posisi orang
+    // yang sedang dicari. Lebih baik latarnya kosong dan titiknya terlihat
+    // jelas, dengan satu baris keterangan jujur di bawah.
+    let gagalUbin = 0;
+    ubin.on("tileerror", () => {
+      if (++gagalUbin < 4) return;
+      peta.removeLayer(ubin);
+      const ket = document.getElementById("kabarPeta");
+      if (ket) ket.classList.remove("sembunyi");
+    });
     penanda = L.circleMarker([d.lat, d.lon], {
       radius: 9, color: "#FAF4E8", weight: 3,
       fillColor: d.sos ? "#B3352B" : "#D97A2B", fillOpacity: 1
